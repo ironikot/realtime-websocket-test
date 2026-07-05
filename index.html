@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Live API リアルタイム会話テスト</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>👁 Live API テスト</h1>
+    <span id="conn-badge" class="badge idle">未接続</span>
+  </header>
+
+  <!-- 設定画面 -->
+  <section id="setup-screen">
+    <div class="card">
+      <label>APIサーバー WebSocket URL</label>
+      <input type="text" id="ws-url" value="wss://lives-api-server-dev-96368391213.asia-northeast1.run.app/gemini-md">
+
+      <label>APIキー（サーバーの API_KEY）</label>
+      <input type="password" id="api-key" placeholder="APIキーを入力" autocomplete="off">
+
+      <label>システムプロンプト</label>
+      <textarea id="system-prompt" rows="5">あなたは視覚障害者の支援アシスタントです。カメラ映像がリアルタイムで見えています。質問には簡潔に日本語で答えてください。「ペンを探して」のように物を探すよう頼まれたら、映像にその物が映った時点ですぐに「見つかりました」と場所とともに教えてください。頼まれるまでは沈黙を保ち、自分から話しすぎないでください。</textarea>
+
+      <button id="start-btn" class="primary">🎙 セッション開始</button>
+      <p class="note">マイクとカメラの許可が必要です。APIキーはこの端末のブラウザ内（localStorage）にのみ保存されます。</p>
+    </div>
+  </section>
+
+  <!-- セッション画面 -->
+  <section id="session-screen" class="hidden">
+    <video id="camera-preview" autoplay muted playsinline></video>
+
+    <div class="stats-row">
+      <span id="stat-time">00:00</span>
+      <span id="stat-frames">📷 0</span>
+      <span id="stat-audio-in">🎙 0s</span>
+      <span id="stat-audio-out">🔊 0s</span>
+      <span id="stat-cost">≈0.0円</span>
+      <span id="stat-reconnect" title="再接続回数">🔁 0</span>
+    </div>
+
+    <div id="transcript"></div>
+
+    <div class="controls">
+      <button id="mute-btn">🎙 ミュート</button>
+      <button id="stop-btn" class="danger">■ 終了</button>
+    </div>
+  </section>
+
+  <details id="debug-panel">
+    <summary>デバッグログ</summary>
+    <pre id="debug-log"></pre>
+  </details>
+
+  <script src="app.js"></script>
+</body>
+</html>
