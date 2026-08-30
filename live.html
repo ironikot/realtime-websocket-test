@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0f1115">
+  <title>Live v2（Opus プロキシ）テスト</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* ---- live.html 専用スタイル（style.css は index.html と共用のため上書きはここで行う） ---- */
+    .badge.connected { background: #143d24; color: #6dd58c; animation: pulse 2s infinite; }
+
+    /* セッション中は画面全体を固定し、会話ログだけを内部スクロールさせる（スマホでアプリ的に使う） */
+    body.session-active { height: 100dvh; overflow: hidden; }
+    body.session-active #session-screen { flex: 1; min-height: 0; }
+
+    .video-row { display: flex; gap: 8px; align-items: flex-start; }
+    .video-row > div { flex: 1; min-width: 0; }
+    .video-cap { font-size: 11px; color: #889; margin: 2px 0;
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* このページではプレビューを切り取らず全体表示する（style.css の cover を上書き） */
+    #camera-preview { object-fit: contain; max-height: 30dvh; }
+    #sent-preview { width: 100%; max-height: 30dvh; object-fit: contain;
+                    border-radius: 12px; background: #000; display: block; }
+    #sent-info { font-size: 11px; color: #889; margin-top: 2px; }
+
+    /* 見張りパネル: 状態と発見フレームを会話ログの直前に全幅で出す */
+    #watch-panel { background: #171a21; border: 1px solid #262a33; border-radius: 12px; padding: 8px 10px; }
+    #watch-panel.hit { border-color: #f66; }
+    #watch-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+    #watch-status { flex: 1; min-width: 0; }
+    #watch-panel.hit #watch-status { color: #f88; font-weight: 600; }
+    #watch-dismiss { background: #333842; color: #e8eaed; border-radius: 8px;
+                     padding: 4px 10px; font-size: 12px; flex: none; }
+    #watch-hit-img { width: 100%; max-height: 34dvh; object-fit: contain;
+                     border: 2px solid #f66; border-radius: 8px; margin-top: 6px;
+                     background: #000; display: block; }
+    #watch-hit-detail { font-size: 12px; color: #f99; margin-top: 4px; }
+
+    /* 会話ログは残りの縦幅を全部使う（セッション中は body 固定なので内部スクロールになる） */
+    #transcript { flex: 1 1 140px; min-height: 120px; overflow-y: auto; }
+
+    /* スマホ縦画面: 映像は上部にコンパクトに置き、会話ログに面積を割く */
+    @media (max-width: 700px) {
+      h1 { font-size: 15px; }
+      #camera-preview, #sent-preview { max-height: 20dvh; }
+      #watch-hit-img { max-height: 26dvh; }
+      #session-screen { padding: 10px; gap: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🔊 Live v2 テスト（/api/v2/live）</h1>
+    <span id="conn-badge" class="badge idle">未接続</span>
+  </header>
+
+  <!-- 設定画面 -->
+  <section id="setup-screen">
+    <div class="card">
+      <label>APIサーバー WebSocket URL</label>
+      <input type="text" id="ws-url" value="wss://lives-api-server-dev-96368391213.asia-northeast1.run.app/api/v2/live">
+
+      <label>APIキー（サーバーの API_KEY）</label>
+      <input type="password" id="api-key" placeholder="APIキーを入力" autocomplete="off">
+
+      <label>Auth0 Bearer トークン（任意。入れると get_usage が実データを返す）</label>
+      <input type="password" id="bearer-token" placeholder="（省略可）" autocomplete="off">
+
+      <label>記憶窓（任意・実験用）。消し始め/残す量トークン。空欄=サーバー既定(≈25.6k、記憶1.5分)。
+        例: 60000/50000 で記憶≈3分・応答+0.7秒。上限110000（記憶≈7分・応答+2秒・費用4倍）</label>
+      <div style="display:flex; gap:8px">
+        <input type="number" id="ctx-trigger" placeholder="trigger_tokens (例 60000)" style="flex:1">
+        <input type="number" id="ctx-target" placeholder="target_tokens (例 50000)" style="flex:1">
+      </div>
+
+      <label>深度マップ PNG（任意・テスト用）。指定すると毎フレーム映像と同じ連番で送信し、
+        「◯◯までの距離は？」に距離入りで答えるようになります（例: lives_api_server/image/depth/depth_example.png）</label>
+      <input type="file" id="depth-file" accept="image/png">
+
+      <button id="start-btn" class="primary">🎙 セッション開始</button>
+      <p class="note">
+        音声は WebCodecs で Opus 24kHz（20ms×5=100ms バッチのバイナリフレーム）として送信し、
+        サーバーからは Opus 48kHz が返ります。PC は Chrome / Edge、スマホは Android Chrome を推奨
+        （iPhone は iOS が新しければ動く場合があります。非対応なら下に警告が出ます）。
+        システムプロンプトはサーバー側（SYNCREO + ツール利用ルール）が使われます。
+        カメラ映像は 1FPS の JPEG バイナリフレームで送信され、
+        「◯◯までの距離は？」で find_objects、「◯◯を見張って」で見張り、
+        「残りいくら使える？」で get_usage が発火します。
+      </p>
+      <p id="support-warn" class="note" style="color:#f66"></p>
+    </div>
+  </section>
+
+  <!-- セッション画面 -->
+  <section id="session-screen" class="hidden">
+    <div class="video-row">
+      <div>
+        <div class="video-cap">📷 カメラ生映像</div>
+        <video id="camera-preview" autoplay muted playsinline></video>
+      </div>
+      <div>
+        <div class="video-cap">📤 サーバーへ送信した JPEG</div>
+        <img id="sent-preview" alt="送信フレーム未取得">
+        <div id="sent-info">まだ送信していません</div>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <span id="stat-time">00:00</span>
+      <span id="stat-frames">📷 0</span>
+      <span id="stat-audio-in">🎙 0s</span>
+      <span id="stat-audio-out">🔊 0</span>
+      <span id="stat-reconnect">🔁 0</span>
+    </div>
+
+    <div class="stats-row">
+      <span id="stat-cost">💴 このセッション: -</span>
+      <span id="stat-search">🔍 検索: 0回</span>
+      <span id="stat-balance">🏦 残高: -</span>
+    </div>
+
+    <div id="tool-banner" class="hidden" style="padding:6px 10px;background:#123;color:#9cf;border-radius:8px;font-size:13px;"></div>
+
+    <!-- 見張り（start_object_search）の状態と発見フレーム -->
+    <div id="watch-panel" class="hidden">
+      <div id="watch-head">
+        <span id="watch-status">🔭 見張り待機中</span>
+        <button id="watch-dismiss" type="button">閉じる</button>
+      </div>
+      <img id="watch-hit-img" class="hidden" alt="発見フレーム">
+      <div id="watch-hit-detail" class="hidden"></div>
+    </div>
+
+    <div id="transcript"></div>
+
+    <button id="stop-btn" class="danger">⏹ セッション終了</button>
+  </section>
+
+  <canvas id="capture-canvas" class="hidden"></canvas>
+  <script src="live.js"></script>
+</body>
+</html>
