@@ -353,22 +353,18 @@ function showSentFrame(blob, seq, w, h, byteLength) {
     `seq=${seq} / ${w}×${h}px / ${(byteLength / 1024).toFixed(1)}KB / JPEG q${VIDEO_JPEG_Q} / ${VIDEO_FPS}FPS`;
 }
 
-// ---------- 見張り（start_object_search）パネル ----------
+// ---------- 発見パネル（見張り watch_result / find_objects の結果 共通） ----------
 function setWatchStatus(text, isHit) {
   $("watch-panel").classList.remove("hidden");
   $("watch-panel").classList.toggle("hit", !!isHit);
   $("watch-status").textContent = text;
 }
 
-// 発見位置を、検出に使ったフレームへ赤枠で描いて表示する。
-// サーバーも同じ画像を GCS live_watch/ に保存している（デバッグの正はそちら）。
-async function showWatchHit(msg) {
-  const objects = msg.objects || [];
-  const labels = objects.map((o) => o.label).filter(Boolean);
-  const title = `🔴 発見: ${labels.join("、") || (msg.targets || []).join("、") || "対象"}`;
-  setWatchStatus(title, true);
-  addLine("sys", `${title}${msg.summary ? "（" + msg.summary + "）" : ""}`, "sys");
-  if (navigator.vibrate) navigator.vibrate([120, 60, 120]); // iOS は非対応（無視される）
+// 検出に使ったフレーム（recentFrames から video_seq で引く）へ赤枠を描いて表示する。
+// objects が空でもフレーム自体は見せる（カメラの照準が合っていたか確認できるように）。
+async function renderFoundFrame({ title, isHit, videoSeq, objects }) {
+  objects = objects || [];
+  setWatchStatus(title, isHit);
 
   // 位置・距離のテキスト詳細（画像が引けない場合でも最低限これは出す）
   const detail = objects.map((o) => {
@@ -378,11 +374,11 @@ async function showWatchHit(msg) {
     if (o.distance_m != null) parts.push(`約${o.distance_m}m`);
     return parts.filter(Boolean).join(" ");
   }).join(" / ");
-  $("watch-hit-detail").textContent = detail ? `${detail}（seq=${msg.video_seq ?? "-"}）` : "";
+  $("watch-hit-detail").textContent = detail ? `${detail}（seq=${videoSeq ?? "-"}）` : "";
   $("watch-hit-detail").classList.toggle("hidden", !detail);
 
-  const blob = recentFrames.get(msg.video_seq);
-  if (!blob || objects.length === 0) { $("watch-hit-img").classList.add("hidden"); return; }
+  const blob = recentFrames.get(videoSeq);
+  if (!blob) { $("watch-hit-img").classList.add("hidden"); return; }
   const bmp = await createImageBitmap(blob);
   const canvas = document.createElement("canvas");
   canvas.width = bmp.width;
@@ -403,6 +399,29 @@ async function showWatchHit(msg) {
   }
   $("watch-hit-img").src = canvas.toDataURL("image/jpeg", 0.85);
   $("watch-hit-img").classList.remove("hidden");
+}
+
+// 見張り（start_object_search）の発見。サーバーも同じ画像を GCS live_watch/ に
+// 保存している（デバッグの正はそちら）。
+async function showWatchHit(msg) {
+  const objects = msg.objects || [];
+  const labels = objects.map((o) => o.label).filter(Boolean);
+  const title = `🔴 発見: ${labels.join("、") || (msg.targets || []).join("、") || "対象"}`;
+  addLine("sys", `${title}${msg.summary ? "（" + msg.summary + "）" : ""}`, "sys");
+  if (navigator.vibrate) navigator.vibrate([120, 60, 120]); // iOS は非対応（無視される）
+  await renderFoundFrame({ title, isHit: true, videoSeq: msg.video_seq, objects });
+}
+
+// find_objects（「◯◯どこ？」）の結果。tool_call_result の objects/found_count は
+// サーバーが検出パイプラインの構造化結果を素通ししたもの（watch_result と同形式）
+async function showFindResult(msg) {
+  const objects = msg.objects || [];
+  const labels = objects.map((o) => o.label).filter(Boolean).join("、");
+  const found = objects.length > 0;
+  const title = found
+    ? `🔍 発見: ${labels}`
+    : "🔍 見つかりませんでした（解析したフレームを表示）";
+  await renderFoundFrame({ title, isHit: found, videoSeq: msg.video_seq, objects });
 }
 
 // ---------- WebSocket 接続（再接続チェーン対応） ----------
@@ -516,6 +535,7 @@ function handleEvent(msg) {
     case "tool_call_result":
       toolBanner.textContent = `🔧 ${msg.name} 完了: ${msg.summary || ""}`;
       setTimeout(() => toolBanner.classList.add("hidden"), 5000);
+      if (msg.name === "find_objects" && msg.video_seq != null) showFindResult(msg);
       break;
     case "tool_call_cancelled":
       toolBanner.classList.add("hidden");

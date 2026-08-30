@@ -29,7 +29,7 @@
     }
     #sent-info { font-size: 11px; color: #889; margin-top: 2px; text-align: center; }
 
-    /* 見張りパネル: 状態と発見フレームを会話ログの直前に全幅で出す */
+    /* 発見パネル（見張り/find_objects 共通）: 状態と発見フレームを会話ログの直前に全幅で出す */
     #watch-panel { background: #171a21; border: 1px solid #262a33; border-radius: 12px; padding: 8px 10px; }
     #watch-panel.hit { border-color: #f66; }
     #watch-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
@@ -129,7 +129,8 @@
 
     <div id="tool-banner" class="hidden" style="padding:6px 10px;background:#123;color:#9cf;border-radius:8px;font-size:13px;"></div>
 
-    <!-- 見張り（start_object_search）の状態と発見フレーム -->
+    <!-- 発見パネル: 見張り（start_object_search）の状態と、
+         見張り/find_objects が検出に使ったフレーム（赤枠つき） -->
     <div id="watch-panel" class="hidden">
       <div id="watch-head">
         <span id="watch-status">🔭 見張り待機中</span>
