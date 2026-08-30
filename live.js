@@ -132,6 +132,8 @@ const app = {
   packetQueue: [],           // エンコード済み Opus（バッチ待ち + 再接続バッファ）
   // 再生
   nextPlayTime: 0, playingSources: new Set(), decodeTimestamp: 0,
+  playbackActiveUntil: 0,   // AI 音声のスケジュール済み末尾時刻（ハーフデュプレックス判定用）
+  speakerMode: false,
   // 統計
   startedAt: 0, framesSent: 0, audioMsSent: 0, batchesReceived: 0,
   statTimer: null, videoTimer: null,
@@ -166,8 +168,13 @@ registerProcessor("capture-processor", CaptureProcessor);
 `;
 
 async function startCapture() {
+  // スピーカーモード: エコーキャンセルを切ると Android が「通話モード」
+  // （通話音量・小さい音）へ切り替わらず、メディア音量の大きな音で再生される。
+  // 代わりに AI の声がマイクに回り込むため、AI 発話中は送信を止める（enqueuePacket 参照）
   app.micStream = await navigator.mediaDevices.getUserMedia({
-    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+    audio: app.speakerMode
+      ? { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+      : { channelCount: 1, echoCancellation: true, noiseSuppression: true },
   });
   try {
     app.captureCtx = new AudioContext({ sampleRate: 24000 });
@@ -223,7 +230,16 @@ async function startCapture() {
   };
 }
 
+// スピーカーモード時のハーフデュプレックス判定: AI の音声を再生中（+ 余韻 300ms）は
+// マイク音声を送らない（エコーキャンセル無しでスピーカー出力がマイクに回り込み、
+// モデルが自分の声に反応・自己バージインするのを防ぐ。声での割り込みは効かなくなる）
+function isAiSpeaking() {
+  if (!app.playbackCtx || app.playbackActiveUntil <= 0) return false; // 0 = 未再生/バージイン破棄直後
+  return app.playbackCtx.currentTime < app.playbackActiveUntil + 0.3;
+}
+
 function enqueuePacket(bytes) {
+  if (app.speakerMode && isAiSpeaking()) return; // ハーフデュプレックス: 破棄
   app.packetQueue.push(bytes);
   while (app.packetQueue.length > PENDING_PACKETS_MAX) app.packetQueue.shift(); // 再接続中は古い方から捨てる
   flushPackets();
@@ -243,6 +259,7 @@ function flushPackets() {
 function setupPlayback() {
   app.playbackCtx = new AudioContext({ sampleRate: 48000 });
   app.nextPlayTime = 0;
+  app.playbackActiveUntil = 0;
   app.decodeTimestamp = 0;
   app.decoder = new AudioDecoder({
     output: (audioData) => {
@@ -259,6 +276,7 @@ function setupPlayback() {
       const startAt = Math.max(now + 0.02, app.nextPlayTime);
       srcNode.start(startAt);
       app.nextPlayTime = startAt + buf.duration;
+      app.playbackActiveUntil = Math.max(app.playbackActiveUntil, app.nextPlayTime);
       app.playingSources.add(srcNode);
       srcNode.onended = () => app.playingSources.delete(srcNode);
     },
@@ -271,6 +289,7 @@ function stopPlaybackNow() {
   for (const s of app.playingSources) { try { s.stop(); } catch (e) {} }
   app.playingSources.clear();
   app.nextPlayTime = 0;
+  app.playbackActiveUntil = 0;
   // デコーダ内の未出力もリセット
   try { app.decoder.reset(); app.decoder.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 1 }); } catch (e) {}
 }
@@ -599,6 +618,8 @@ async function startAll() {
   const warn = await checkSupport();
   if (warn) { $("support-warn").textContent = warn; return; }
   localStorage.setItem("live_v2_api_key", $("api-key").value.trim());
+  app.speakerMode = $("speaker-mode").checked;
+  localStorage.setItem("live_v2_speaker_mode", app.speakerMode ? "1" : "0");
   const depthFile = $("depth-file").files[0];
   app.depthBytes = depthFile ? new Uint8Array(await depthFile.arrayBuffer()) : null;
   $("setup-screen").classList.add("hidden");
@@ -615,7 +636,9 @@ async function startAll() {
     const sec = Math.floor((Date.now() - app.startedAt) / 1000);
     $("stat-time").textContent = String(Math.floor(sec / 60)).padStart(2, "0") + ":" + String(sec % 60).padStart(2, "0");
     $("stat-frames").textContent = "📷 " + app.framesSent;
-    $("stat-audio-in").textContent = "🎙 " + Math.round(app.audioMsSent / 1000) + "s";
+    const muted = app.speakerMode && isAiSpeaking();
+    $("stat-audio-in").textContent =
+      (muted ? "🔇 " : "🎙 ") + Math.round(app.audioMsSent / 1000) + "s" + (muted ? "（AI発話中は送信停止）" : "");
     $("stat-audio-out").textContent = "🔊 " + app.batchesReceived;
   }, 1000);
 }
@@ -641,6 +664,7 @@ function stopAll() {
 // ---------- 初期化 ----------
 window.addEventListener("load", () => {
   $("api-key").value = localStorage.getItem("live_v2_api_key") || "";
+  $("speaker-mode").checked = localStorage.getItem("live_v2_speaker_mode") === "1";
   $("start-btn").addEventListener("click", startAll);
   $("stop-btn").addEventListener("click", stopAll);
   $("watch-dismiss").addEventListener("click", () => $("watch-panel").classList.add("hidden"));
