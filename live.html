@@ -13,17 +13,21 @@
 
     /* セッション中は画面全体を固定し、会話ログだけを内部スクロールさせる（スマホでアプリ的に使う） */
     body.session-active { height: 100dvh; overflow: hidden; }
-    body.session-active #session-screen { flex: 1; min-height: 0; }
+    /* 各要素の最小高さの合計が画面を超えた場合（横向きスマホ等）はセクション全体をスクロール可能に */
+    body.session-active #session-screen { flex: 1; min-height: 0; overflow-y: auto; }
 
     .video-row { display: flex; gap: 8px; align-items: flex-start; }
     .video-row > div { flex: 1; min-width: 0; }
     .video-cap { font-size: 11px; color: #889; margin: 2px 0;
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    /* このページではプレビューを切り取らず全体表示する（style.css の cover を上書き） */
-    #camera-preview { object-fit: contain; max-height: 30dvh; }
-    #sent-preview { width: 100%; max-height: 30dvh; object-fit: contain;
-                    border-radius: 12px; background: #000; display: block; }
-    #sent-info { font-size: 11px; color: #889; margin-top: 2px; }
+    /* このページではプレビューを切り取らず全体表示する（style.css の cover を上書き）。
+       スマホ縦持ちだと映像は縦長（9:16）になるため、width:100% 固定にせず
+       実アスペクトのまま高さ上限いっぱいに表示する（黒帯で小さくなるのを防ぐ） */
+    #camera-preview, #sent-preview {
+      width: auto; max-width: 100%; max-height: 30dvh; object-fit: contain;
+      border-radius: 12px; background: #000; display: block; margin: 0 auto;
+    }
+    #sent-info { font-size: 11px; color: #889; margin-top: 2px; text-align: center; }
 
     /* 見張りパネル: 状態と発見フレームを会話ログの直前に全幅で出す */
     #watch-panel { background: #171a21; border: 1px solid #262a33; border-radius: 12px; padding: 8px 10px; }
@@ -33,19 +37,21 @@
     #watch-panel.hit #watch-status { color: #f88; font-weight: 600; }
     #watch-dismiss { background: #333842; color: #e8eaed; border-radius: 8px;
                      padding: 4px 10px; font-size: 12px; flex: none; }
-    #watch-hit-img { width: 100%; max-height: 34dvh; object-fit: contain;
-                     border: 2px solid #f66; border-radius: 8px; margin-top: 6px;
+    #watch-hit-img { width: auto; max-width: 100%; max-height: 34dvh; object-fit: contain;
+                     border: 2px solid #f66; border-radius: 8px; margin: 6px auto 0;
                      background: #000; display: block; }
     #watch-hit-detail { font-size: 12px; color: #f99; margin-top: 4px; }
 
     /* 会話ログは残りの縦幅を全部使う（セッション中は body 固定なので内部スクロールになる） */
     #transcript { flex: 1 1 140px; min-height: 120px; overflow-y: auto; }
 
-    /* スマホ縦画面: 映像は上部にコンパクトに置き、会話ログに面積を割く */
+    /* スマホ縦画面: 映像は上部にコンパクトに置き、会話ログに面積を割く
+       （縦長映像は幅でなく高さで決まるため、20dvh より少し余裕を持たせる） */
     @media (max-width: 700px) {
       h1 { font-size: 15px; }
-      #camera-preview, #sent-preview { max-height: 20dvh; }
-      #watch-hit-img { max-height: 26dvh; }
+      /* 縦長映像 + 見張り画像 + 会話ログ + 終了ボタンが 1 画面に収まる高さ配分 */
+      #camera-preview, #sent-preview { max-height: 22dvh; }
+      #watch-hit-img { max-height: 22dvh; }
       #session-screen { padding: 10px; gap: 8px; }
     }
   </style>

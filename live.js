@@ -276,10 +276,40 @@ function stopPlaybackNow() {
 }
 
 // ---------- カメラ（1FPS JPEG バイナリ） ----------
-async function startCamera() {
-  app.camStream = await navigator.mediaDevices.getUserMedia({
+function openCamStream() {
+  return navigator.mediaDevices.getUserMedia({
     video: { facingMode: "environment", width: { ideal: 1280 } },
   });
+}
+
+// スマホ（Android Chrome）はストリーム開始時の端末の向きでカメラが固定され、
+// 途中で縦⇄横に回転しても映像が追従しない。回転を検知したらストリームを取り直す。
+// （カメラはデバイス排他なので、先に止めてから再取得する）
+let cameraRestartBusy = false;
+async function restartCameraForOrientation() {
+  if (!app.running || !app.camStream || cameraRestartBusy) return;
+  cameraRestartBusy = true;
+  try {
+    app.camStream.getTracks().forEach((t) => t.stop());
+    app.camStream = await openCamStream();
+    $("camera-preview").srcObject = app.camStream;
+    const track = app.camStream.getVideoTracks()[0];
+    const s = track && track.getSettings ? track.getSettings() : {};
+    addLine("sys", `画面回転に合わせてカメラを取り直しました（${s.width ?? "?"}×${s.height ?? "?"}）`, "sys");
+  } catch (e) {
+    addLine("sys", "カメラの向き切替に失敗: " + e.message, "sys");
+  } finally {
+    cameraRestartBusy = false;
+  }
+}
+if (screen.orientation && screen.orientation.addEventListener) {
+  screen.orientation.addEventListener("change", () => setTimeout(restartCameraForOrientation, 300));
+} else {
+  window.addEventListener("orientationchange", () => setTimeout(restartCameraForOrientation, 300));
+}
+
+async function startCamera() {
+  app.camStream = await openCamStream();
   const video = $("camera-preview");
   video.srcObject = app.camStream;
   const canvas = $("capture-canvas");
