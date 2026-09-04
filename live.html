@@ -153,6 +153,14 @@
 
     <div id="transcript"></div>
 
+    <!-- 文字入力: 音声の代わりにテキストでターンを送る（wire の text_turn。
+         サーバーは音声質問と同じ扱いで音声で返答する。マイクのエコーを避けたい時や
+         静かな場所での確認用） -->
+    <div class="text-turn-row">
+      <input type="text" id="text-turn-input" placeholder="文字で質問（Enter で送信）" autocomplete="off" enterkeyhint="send">
+      <button id="text-turn-btn" type="button">⌨️ 送信</button>
+    </div>
+
     <button id="stop-btn" class="danger">⏹ セッション終了</button>
   </section>
 

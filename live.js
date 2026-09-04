@@ -643,6 +643,23 @@ async function startAll() {
   }, 1000);
 }
 
+// 文字入力をターンとして送る（wire: {"type":"text_turn","text":...}）。
+// サーバーは音声発話と同じくモデルへ注入し、返答は通常どおり音声で返る。
+// text_turn には input_transcription が返らないので、送った文面はここで表示する。
+function sendTextTurn() {
+  const input = $("text-turn-input");
+  const text = input.value.trim();
+  if (!text) return;
+  if (!app.ws || app.ws.readyState !== WebSocket.OPEN || !app.ready) {
+    addLine("sys", "まだ接続できていません（ready 待ち）", "sys");
+    return;
+  }
+  finalizeTurnLines();
+  app.ws.send(JSON.stringify({ type: "text_turn", text }));
+  addLine("user", "⌨️ " + text, "user");
+  input.value = "";
+}
+
 function stopAll() {
   app.running = false;
   document.body.classList.remove("session-active");
@@ -668,5 +685,9 @@ window.addEventListener("load", () => {
   $("start-btn").addEventListener("click", startAll);
   $("stop-btn").addEventListener("click", stopAll);
   $("watch-dismiss").addEventListener("click", () => $("watch-panel").classList.add("hidden"));
+  $("text-turn-btn").addEventListener("click", sendTextTurn);
+  $("text-turn-input").addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" && !ev.isComposing) { ev.preventDefault(); sendTextTurn(); }
+  });
   checkSupport().then(w => { if (w) $("support-warn").textContent = w; });
 });
